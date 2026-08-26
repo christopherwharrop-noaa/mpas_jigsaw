@@ -3,6 +3,9 @@
 import numpy as np
 import hfun
 
+hfun_min = hfun.finest_resolution()
+
+
 def cart_to_geo(x, y, z):
     from numpy import atan2, asin
     lam = atan2(y, x)
@@ -16,7 +19,7 @@ longitude, latitude = cart_to_geo(coords[:,0], coords[:,1], coords[:,2])
 
 dx = hfun.get_hfun(longitude, latitude)
 
-density = (1.0 / (dx / hfun.hfun_min))**4
+density = (1.0 / (dx / hfun_min))**4
 
 with open('SaveDensity', 'w') as f:
     for d in density:

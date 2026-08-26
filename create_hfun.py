@@ -3,6 +3,8 @@
 import numpy as np
 import hfun
 
+hfun_min = hfun.finest_resolution()
+
 #
 # Determine resolution of output lat-lon grid based on hfun_min. The approach
 # below is probably quite conservative if we assume that the mesh refinement
@@ -11,7 +13,7 @@ import hfun
 #
 r_earth = 6371.229
 deg_to_km = 2.0 * np.pi * r_earth / 360.0
-nlat = int(180.0 * deg_to_km / hfun.hfun_min) + 1
+nlat = int(180.0 * deg_to_km / hfun_min) + 1
 
 #
 # Generate 2-d lat-lon meshgrid (radians)
