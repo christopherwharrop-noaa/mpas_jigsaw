@@ -1353,7 +1353,10 @@ int main(int argc, char **argv)
 		density_len = ftell(density_file);
 		fseek(density_file, 0L, SEEK_SET);	
 		density_code = malloc((size_t)density_len * sizeof(char));
-		fread(density_code, sizeof(char), (size_t)density_len, density_file);
+		if (fread(density_code, sizeof(char), (size_t)density_len, density_file) != (size_t)density_len) {
+			fprintf(stderr, "Error: short read from SaveCode\n");
+			return 1;
+		}
 		fclose(density_file);
 	} else {
 		fprintf(stderr, "Unable to open SaveCode file; density_function_code will not be written to grid.nc\n");
@@ -1371,7 +1374,10 @@ int main(int argc, char **argv)
 	norm_min = DBL_MAX;
 	norm_max = -DBL_MAX;
 	for (i=0; i<nCells; i++) {
-		fscanf(fd, "%lf %lf %lf\n", &xCell[i], &yCell[i], &zCell[i]);
+		if (fscanf(fd, "%lf %lf %lf\n", &xCell[i], &yCell[i], &zCell[i]) != 3) {
+			fprintf(stderr, "Error: failed to read cell %zu from SaveVertices\n", i);
+			return 1;
+		}
 		v = normalize_vect_r3(&xCell[i], &yCell[i], &zCell[i]);
 		norm_min = min(v, norm_min);
 		norm_max = max(v, norm_max);
@@ -1390,7 +1396,10 @@ int main(int argc, char **argv)
 	tri_min = INT_MAX;
 	tri_max = INT_MIN;
 	for (i=0; i<(size_t)nVertices; i++) {
-		fscanf(fd, "%d %d %d\n", &cellsOnVertex[(size_t)vertexDegree*i], &cellsOnVertex[(size_t)vertexDegree*i+1], &cellsOnVertex[(size_t)vertexDegree*i+2]);
+		if (fscanf(fd, "%d %d %d\n", &cellsOnVertex[(size_t)vertexDegree*i], &cellsOnVertex[(size_t)vertexDegree*i+1], &cellsOnVertex[(size_t)vertexDegree*i+2]) != 3) {
+			fprintf(stderr, "Error: failed to read triangle %zu from SaveTriangles\n", i);
+			return 1;
+		}
 		for (j=0; j<(int)vertexDegree; j++) {
 			tri_min = min(cellsOnVertex[(size_t)vertexDegree*i+(size_t)j], tri_min);
 			tri_max = max(cellsOnVertex[(size_t)vertexDegree*i+(size_t)j], tri_max);
@@ -2884,7 +2893,10 @@ fprintf(stderr, "EdgeOnVertex = %i\n", j);
         if ((fd = fopen("SaveDensity", "r")) != NULL) {
 		fprintf(stderr, "Reading meshDensity from SaveDensity file\n");
 		for (i=0; i<nCells; i++) {
-			fscanf(fd, "%lf\n", &meshDensity[i]);
+			if (fscanf(fd, "%lf\n", &meshDensity[i]) != 1) {
+				fprintf(stderr, "Error: failed to read meshDensity %zu from SaveDensity\n", i);
+				return 1;
+			}
 		}
 		fclose(fd);
 	}
