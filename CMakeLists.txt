@@ -13,4 +13,6 @@ find_package(PnetCDF REQUIRED)
 add_executable(mkgrid mkgrid.c)
 target_link_libraries(mkgrid PRIVATE PnetCDF::PnetCDF MPI::MPI_C m)
 
-install(TARGETS mkgrid DESTINATION bin)
+add_executable(write_hfun write_hfun.c)
+
+install(TARGETS mkgrid write_hfun DESTINATION bin)

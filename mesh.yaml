@@ -1,17 +1,19 @@
 mesh:
-  # Coarse (global) grid distance in km
-  coarse_resolution: 60.0
-
+  resolution: 120.0
+  transition_profile: linear
   refinements:
-    - resolution: 12.0
-      # Center of refinement region (degrees)
+    - resolution: 20.0
+      shape: ellipse
       center_latitude: 38.0
-      center_longitude: -95.0
-      # Radius of the uniform refinement region in km
-      radius: 2600.0
-    - resolution: 3.0
-      center_latitude: 38.0
-      center_longitude: -95.0
-      # Radius of the uniform refinement region in km
-      radius: 600.0
+      center_longitude: -97.0
+      semi_major: 3992.703
+      semi_minor: 2455.287
+      orientation: 95.0
+      refinements:
+        - resolution: 3.0
+          shape: circle
+          center_latitude: 38.0
+          center_longitude: -97.0
+          radius: 175.0
+          refinements:
 

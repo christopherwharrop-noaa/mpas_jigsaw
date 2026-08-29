@@ -515,6 +515,9 @@ int get_var(int ncid, const char *varname, void **buf, MPI_Offset *start_in, MPI
 	MPI_Offset total_size;
 	int i;
 
+	/* Wait for all ranks to finish any prior writes */
+	MPI_Barrier(MPI_COMM_WORLD);
+
 	ncerr = ncmpi_inq_varid(ncid, varname, &varid);
 	if (ncerr != NC_NOERR) {
 		fprintf(stderr, "Error inquiring variable ID for %s: %s\n", varname, ncmpi_strerror(ncerr));
@@ -735,6 +738,9 @@ int put_var(int ncid, const char *varname, void *buf, MPI_Offset *start_in, MPI_
 	free(dimids);
 	free(start);
 	free(count);
+
+	/* Flush to ensure data is visible to other ranks */
+	ncmpi_sync(ncid);
 
 	return 0;
 }

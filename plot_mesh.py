@@ -43,7 +43,7 @@ def plot_mesh(grid_file, output_file="mesh_plot.png", extent=None):
     cell_indices = np.where(mask)[0]
 
     proj = ccrs.PlateCarree()
-    fig, ax = plt.subplots(figsize=(14, 10), subplot_kw={'projection': proj})
+    fig, ax = plt.subplots(figsize=(12.5, 8.75), subplot_kw={'projection': proj})
     ax.set_extent(extent, crs=proj)
 
     # Build polygons for each cell
@@ -69,15 +69,28 @@ def plot_mesh(grid_file, output_file="mesh_plot.png", extent=None):
     ax.add_collection(pc)
 
     # Draw coastlines and borders on top of the mesh
-    ax.add_feature(cfeature.COASTLINE, linewidth=1.8, color='darkblue', zorder=3)
-    ax.add_feature(cfeature.BORDERS, linewidth=0.8, color='darkblue',
-                   linestyle='--', zorder=3)
+    # Draw refinement region boundaries and transition zones
+    try:
+        import hfun
+        for bd in hfun.get_region_boundaries():
+            if bd['kind'] == 'boundary':
+                ax.plot(bd['lons_deg'], bd['lats_deg'], color='red',
+                        linewidth=1.5, transform=proj, zorder=3)
+            else:
+                ax.plot(bd['lons_deg'], bd['lats_deg'], color='red',
+                        linewidth=0.8, linestyle='--', transform=proj, zorder=3)
+    except Exception:
+        pass
+
+    ax.add_feature(cfeature.COASTLINE, linewidth=1.8, edgecolor='darkblue', zorder=4)
+    ax.add_feature(cfeature.BORDERS, linewidth=0.8, edgecolor='darkblue',
+                   linestyle='--', zorder=4)
     ax.gridlines(draw_labels=True, linewidth=0.3, alpha=0.5)
 
     ax.set_title(f'MPAS Mesh ({len(cell_indices)} cells shown)\n'
                  f'dcEdge range: {dc_edge_km.min():.1f} - {dc_edge_km.max():.1f} km')
 
-    plt.savefig(output_file, dpi=200, bbox_inches='tight')
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"Saved plot to {output_file}")
 
 

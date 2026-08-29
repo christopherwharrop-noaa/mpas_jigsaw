@@ -63,7 +63,7 @@ def plot_mesh_sphere(grid_file, output_file="mesh_sphere.png",
     dot = x_cell * view_x + y_cell * view_y + z_cell * view_z
     cell_indices = np.where(dot > 0.05)[0]
 
-    fig = plt.figure(figsize=(12, 12))
+    fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111, projection='3d')
 
     # Draw mesh polygons (light gray edges, white fill)
@@ -92,6 +92,27 @@ def plot_mesh_sphere(grid_file, output_file="mesh_sphere.png",
                 ax.plot3D(s[:, 0], s[:, 1], s[:, 2],
                           color='darkblue', linewidth=1.8, zorder=10)
 
+    # Draw refinement region boundaries and transition zones
+    try:
+        import hfun
+        for bd in hfun.get_region_boundaries(mesh_file=grid_file):
+            if bd['kind'] == 'boundary':
+                lw, ls = 1.5, '-'
+            else:
+                lw, ls = 0.8, '--'
+            bx, by, bz = latlon_to_xyz(bd['lats_deg'], bd['lons_deg'], r=1.002)
+            pts = np.column_stack((bx, by, bz))
+            dots = pts[:, 0] * view_x + pts[:, 1] * view_y + pts[:, 2] * view_z
+            mask = dots > 0.0
+            splits = np.where(np.diff(mask.astype(int)) != 0)[0] + 1
+            for sub in np.split(np.arange(len(pts)), splits):
+                if len(sub) > 1 and mask[sub[0]]:
+                    s = pts[sub]
+                    ax.plot3D(s[:, 0], s[:, 1], s[:, 2],
+                              color='red', linewidth=lw, linestyle=ls, zorder=10)
+    except Exception:
+        pass
+
     # Zoom: smaller limits = more zoomed in
     lim = 1.0 / zoom
     ax.set_xlim(-lim, lim)
@@ -104,7 +125,7 @@ def plot_mesh_sphere(grid_file, output_file="mesh_sphere.png",
     azim = np.degrees(np.arctan2(view_y, view_x))
     ax.view_init(elev=elev, azim=azim)
 
-    plt.savefig(output_file, dpi=200, bbox_inches='tight')
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"Saved plot to {output_file}")
 
 

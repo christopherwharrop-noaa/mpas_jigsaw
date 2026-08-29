@@ -1,7 +1,13 @@
 #!/usr/bin/env python
 
+import subprocess
 import numpy as np
+from mpi4py import MPI
 import hfun
+
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+nprocs = comm.Get_size()
 
 hfun_min = hfun.finest_resolution()
 
@@ -16,35 +22,54 @@ deg_to_km = 2.0 * np.pi * r_earth / 360.0
 nlat = int(180.0 * deg_to_km / hfun_min) + 1
 
 #
-# Generate 2-d lat-lon meshgrid (radians)
+# Generate 1-d lat and lon arrays (radians)
 #
 lats = np.linspace(-0.5 * np.pi, 0.5 * np.pi, num=nlat, endpoint=True)
 lons = np.linspace(-np.pi, np.pi, num=2 * nlat, endpoint=True)
-latgrid, longrid = np.meshgrid(lats, lons)
 
 nlats = lats.size
 nlons = lons.size
-npts = nlats * nlons
 
 #
-# Invoke code in hfun.py to return an array of grid distances at the coordinates
-# provided by the longrid and latgrid arrays
+# Split longitude columns across MPI ranks
 #
-distance = hfun.get_hfun(longrid, latgrid)
+counts = np.array([(nlons // nprocs) + (1 if i < nlons % nprocs else 0)
+                   for i in range(nprocs)])
+offsets = np.cumsum(counts) - counts
+my_lons = lons[offsets[rank]:offsets[rank] + counts[rank]]
 
 #
-# Write grid distances out to a JIGSAW-compatible file
+# Build local meshgrid and compute hfun for this rank's columns
 #
-with open('HFUN.msh', 'w') as f:
-    f.write('MSHID=3;ellipsoid-grid\n')
-    f.write('NDIMS=2\n')
-    f.write(f'COORD=1;{nlons}\n')
-    for lon in lons:
-        f.write(f'{lon}\n')
-    f.write(f'COORD=2;{nlats}\n')
-    for lat in lats:
-        f.write(f'{lat}\n')
+local_latgrid, local_longrid = np.meshgrid(lats, my_lons)
+local_distance = hfun.get_hfun(local_longrid, local_latgrid)
 
-    f.write(f'VALUE={npts}; 1\n')
-    for d in distance.flatten():
-        f.write(f'{d}\n')
+#
+# Gather results to rank 0
+#
+if rank == 0:
+    distance = np.empty((nlons, nlats), dtype=np.float64)
+else:
+    distance = None
+
+sendcounts = counts * nlats
+displacements = offsets * nlats
+comm.Gatherv(np.ascontiguousarray(local_distance),
+             [distance, sendcounts, displacements, MPI.DOUBLE],
+             root=0)
+
+#
+# Rank 0 pipes binary arrays to write_hfun which writes HFUN.msh
+#
+if rank == 0:
+    proc = subprocess.Popen(
+        ['./bin/write_hfun', str(nlons), str(nlats)],
+        stdin=subprocess.PIPE,
+    )
+    proc.stdin.write(lons.tobytes())
+    proc.stdin.write(lats.tobytes())
+    proc.stdin.write(distance.tobytes())
+    proc.stdin.close()
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError(f'write_hfun exited with code {rc}')
