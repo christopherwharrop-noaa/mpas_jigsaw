@@ -91,6 +91,22 @@ def check_resolution_gradient(nominalMinDc, meshDensity, nEdgesOnCell, edgesOnCe
     print('Max nominal cell size gradient:', np.max(gradient))
 
 
+def check_cell_types(nEdgesOnCell):
+    names = {3: 'triangles', 4: 'quadrilaterals', 5: 'pentagons',
+             6: 'hexagons', 7: 'heptagons', 8: 'octagons'}
+    counts = dict(zip(*np.unique(nEdgesOnCell, return_counts=True)))
+    nCells = len(nEdgesOnCell)
+    n_hex = counts.get(6, 0)
+    print('')
+    print(f'Cell type census ({nCells} cells):')
+    for nsides in sorted(counts):
+        label = names.get(nsides, f'{nsides}-gons')
+        pct = 100.0 * counts[nsides] / nCells
+        marker = '' if nsides == 6 else '  *'
+        print(f'  {label:>16s}: {counts[nsides]:>8d}  ({pct:5.2f}%){marker}')
+    print(f'  {"non-hexagons":>16s}: {nCells - n_hex:>8d}  ({100.0*(nCells - n_hex)/nCells:5.2f}%)')
+
+
 if __name__ == '__main__':
     import argparse
     import sys
@@ -111,7 +127,7 @@ if __name__ == '__main__':
     nEdges = f.dimensions['nEdges'].size
     maxEdges = f.dimensions['maxEdges'].size
     vertexDegree = f.dimensions['vertexDegree'].size
-    nEdgesOnCell = f.variables['nEdgesOnCell'][:] - 1
+    nEdgesOnCell = f.variables['nEdgesOnCell'][:]
     cellsOnVertex = f.variables['cellsOnVertex'][:] - 1
     cellsOnEdge = f.variables['cellsOnEdge'][:] - 1
     edgesOnCell = f.variables['edgesOnCell'][:] - 1
@@ -136,5 +152,7 @@ if __name__ == '__main__':
     check_obtuse_triangles(nVertices, vertexDegree, xCell, yCell, zCell, xVertex, yVertex, zVertex, cellsOnVertex)
 
     check_resolution_gradient(nominalMinDc, meshDensity, nEdgesOnCell, edgesOnCell, cellsOnEdge, dcEdge)
+
+    check_cell_types(nEdgesOnCell)
 
     f.close()
