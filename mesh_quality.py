@@ -93,7 +93,8 @@ def check_resolution_gradient(nominalMinDc, meshDensity, nEdgesOnCell, edgesOnCe
 
 def check_cell_types(nEdgesOnCell):
     names = {3: 'triangles', 4: 'quadrilaterals', 5: 'pentagons',
-             6: 'hexagons', 7: 'heptagons', 8: 'octagons'}
+             6: 'hexagons', 7: 'heptagons', 8: 'octagons',
+             9: 'nonagons', 10: 'decagons'}
     counts = dict(zip(*np.unique(nEdgesOnCell, return_counts=True)))
     nCells = len(nEdgesOnCell)
     n_hex = counts.get(6, 0)
