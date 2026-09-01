@@ -28,7 +28,7 @@ def sphere_distance(a, b):
     both of which lie on the surface of the same sphere.
     """
     c = plane_distance(a, b)
-    return 2.0 * np.asin(c / 2.0)
+    return 2.0 * np.arcsin(c / 2.0)
 
 
 def sphere_angle(A, B, C):
@@ -48,8 +48,8 @@ def sphere_angle(A, B, C):
     sin_angle = np.sqrt((np.sin(s-b)*np.sin(s-c))/(np.sin(b)*np.sin(c))) # Eqn. (28)
 
     return np.where(vec_dot(D, A) >= 0.0,
-                    2.0 * np.asin(sin_angle),
-                   -2.0 * np.asin(sin_angle))
+                    2.0 * np.arcsin(sin_angle),
+                   -2.0 * np.arcsin(sin_angle))
 
 
 def check_distances(dcEdge, dvEdge):
@@ -83,7 +83,7 @@ def check_obtuse_triangles(nVertices, vertexDegree, xCell, yCell, zCell, xVertex
 
 
 def check_resolution_gradient(nominalMinDc, meshDensity, nEdgesOnCell, edgesOnCell, cellsOnEdge, dcEdge):
-    nominalDx = r_earth * nominalMinDc * np.pow(1.0 / meshDensity, 0.25)
+    nominalDx = r_earth * nominalMinDc * np.power(1.0 / meshDensity, 0.25)
     gradient = np.abs(nominalDx[cellsOnEdge[:,0]] - nominalDx[cellsOnEdge[:,1]]) / dcEdge / r_earth
 
     print('')

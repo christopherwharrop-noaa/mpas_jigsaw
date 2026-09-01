@@ -104,22 +104,44 @@ def _sd_ellipse(shape, lons_rad, lats_rad, max_dist=None):
     # Angular distance and bearing from center to each point
     x_c, y_c, z_c = geo_to_cartesian(clon, clat)
     px, py, pz = geo_to_cartesian(flat_lons, flat_lats)
-    delta = np.arccos(np.clip(x_c * px + y_c * py + z_c * pz, -1.0, 1.0))
+    P = np.column_stack((px, py, pz))
+    n_pts = len(P)
+    p_center = np.array([x_c, y_c, z_c])
+    delta = np.arccos(np.clip(P @ p_center, -1.0, 1.0))
     beta = _bearing(clon, clat, flat_lons, flat_lats)
+
+    # Pre-filter: skip points too far from ellipse to matter
+    if max_dist is not None:
+        cutoff_ang = a / R_EARTH + max_dist / R_EARTH + 0.01
+        candidate = delta < cutoff_ang
+        P_full, n_pts_full = P, n_pts
+        delta = delta[candidate]
+        beta = beta[candidate]
+        flat_lons = flat_lons[candidate]
+        flat_lats = flat_lats[candidate]
+        P = P[candidate]
+        n_pts = len(P)
 
     # Inside test: radial distance vs boundary radius at point's bearing
     alpha_p = beta - orient
     r_at_beta = a * b / np.sqrt((b * np.cos(alpha_p))**2 + (a * np.sin(alpha_p))**2)
     inside = (R_EARTH * delta) <= r_at_beta
 
-    # Newton: find bearing theta minimizing GC dist from point to boundary B(theta)
-    # Uses spherical law of cosines: cos(PB) = cos(d)cos(r) + sin(d)sin(r)cos(beta-theta)
-    theta = beta.copy()
+    # Coarse sweep to find best Newton start (avoids wrong-extremum convergence)
     a2, b2, ab = a**2, b**2, a * b
     diff2 = a2 - b2
+    n_sweep = 36
+    sweep_angles = np.linspace(0, 2 * np.pi, n_sweep, endpoint=False)
+    sweep_D = b2 * np.cos(sweep_angles - orient)**2 + a2 * np.sin(sweep_angles - orient)**2
+    sweep_lons, sweep_lats = _small_circle(clon, clat, ab / np.sqrt(sweep_D), sweep_angles)
+    sx, sy, sz = geo_to_cartesian(sweep_lons, sweep_lats)
+    S = np.column_stack((sx, sy, sz))
+    best = np.argmax(P @ S.T, axis=1)
+    theta = sweep_angles[best]
+
     cos_d, sin_d = np.cos(delta), np.sin(delta)
 
-    for _ in range(6):
+    for _ in range(8):
         al = theta - orient
         cos_al, sin_al = np.cos(al), np.sin(al)
         D = b2 * cos_al**2 + a2 * sin_al**2
@@ -137,9 +159,9 @@ def _sd_ellipse(shape, lons_rad, lats_rad, max_dist=None):
         cos_g, sin_g = np.cos(gamma), np.sin(gamma)
 
         F = cos_d * cos_r + sin_d * sin_r * cos_g
-        A = sin_d * cos_r * cos_g - cos_d * sin_r
-        g = rhop * A + sin_d * sin_r * sin_g
-        gp = (rhopp * A - rhop**2 * F
+        A_val = sin_d * cos_r * cos_g - cos_d * sin_r
+        g = rhop * A_val + sin_d * sin_r * sin_g
+        gp = (rhopp * A_val - rhop**2 * F
               + 2 * rhop * sin_d * cos_r * sin_g
               - sin_d * sin_r * cos_g)
         gp = np.where(np.abs(gp) < 1e-12, np.copysign(1e-12, gp), gp)
@@ -153,7 +175,13 @@ def _sd_ellipse(shape, lons_rad, lats_rad, max_dist=None):
     cos_pb = cos_d * np.cos(rho) + sin_d * np.sin(rho) * np.cos(gamma)
     gc_dist = R_EARTH * np.arccos(np.clip(cos_pb, -1.0, 1.0))
 
-    return np.where(inside, -gc_dist, gc_dist).reshape(lons_rad.shape)
+    sd = np.where(inside, -gc_dist, gc_dist)
+
+    if max_dist is not None:
+        result = np.full(n_pts_full, max_dist * 1.1)
+        result[candidate] = sd
+        return result.reshape(lons_rad.shape)
+    return sd.reshape(lons_rad.shape)
 def _sd_polygon(shape, lons_rad, lats_rad, max_dist=None):
     """Signed distance to convex polygon using great-circle arcs on the sphere."""
     vertices = np.array(shape["vertices"])
@@ -164,28 +192,61 @@ def _sd_polygon(shape, lons_rad, lats_rad, max_dist=None):
     V = np.column_stack((vx, vy, vz))
     nv = len(V)
 
-    flat_lons = lons_rad.flatten()
-    flat_lats = lats_rad.flatten()
-    px, py, pz = geo_to_cartesian(flat_lons, flat_lats)
+    # Precompute edge normals (depend only on polygon vertices)
+    V_next = np.roll(V, -1, axis=0)
+    edge_normals = np.cross(V, V_next)
+    edge_lens = np.linalg.norm(edge_normals, axis=1, keepdims=True)
+    edge_normals /= np.maximum(edge_lens, 1e-15)
+
+    # Centroid for inside test and pre-filter
+    centroid = V.mean(axis=0)
+    centroid /= np.linalg.norm(centroid)
+
+    px, py, pz = geo_to_cartesian(lons_rad.flatten(), lats_rad.flatten())
     P = np.column_stack((px, py, pz))
     n_pts = len(P)
 
-    # Pass 1: unsigned distance to nearest edge
-    min_dist = np.full(n_pts, np.inf)
+    # Pre-filter: skip points too far from polygon to matter
+    if max_dist is not None:
+        # Check edge-arc extrema (arcs can bulge beyond vertices)
+        poly_radius = np.max(np.arccos(np.clip(V @ centroid, -1.0, 1.0)))
+        for i in range(nv):
+            j = (i + 1) % nv
+            omega = np.arccos(np.clip(V[i] @ V[j], -1.0, 1.0))
+            if omega < 1e-12:
+                continue
+            a = centroid @ V[i]
+            b = centroid @ V[j]
+            phi = np.arctan2((b - a * np.cos(omega)) / np.sin(omega), a)
+            t_ext = (phi + np.pi) / omega
+            if 0 < t_ext < 1:
+                so = np.sin(omega)
+                p = (np.sin((1 - t_ext) * omega) * V[i]
+                     + np.sin(t_ext * omega) * V[j]) / so
+                poly_radius = max(poly_radius, np.arccos(np.clip(centroid @ p, -1, 1)))
+        cutoff_ang = poly_radius + max_dist / R_EARTH + 0.01
+        cos_cutoff = np.cos(cutoff_ang)
+        cos_cent = P @ centroid
+        candidate = cos_cent > cos_cutoff
+        P_full, n_pts_full = P, n_pts
+        P = P[candidate]
+        n_pts = len(P)
+
+    # Pass 1: unsigned distance to nearest edge (cosine domain, single arccos at end)
+    max_cos = np.full(n_pts, -1.0)
+    best_edge = np.zeros(n_pts, dtype=np.intp)
 
     for i in range(nv):
         j = (i + 1) % nv
         A, B = V[i], V[j]
 
-        edge_n = np.cross(A, B)
-        edge_n_len = np.linalg.norm(edge_n)
-        if edge_n_len < 1e-15:
+        if edge_lens[i, 0] < 1e-15:
             continue
-        edge_n /= edge_n_len
+        edge_n = edge_normals[i]
 
-        d_A = np.arccos(np.clip(P @ A, -1.0, 1.0))
-        d_B = np.arccos(np.clip(P @ B, -1.0, 1.0))
-        dist_edge = np.minimum(d_A, d_B)
+        cos_dA = P @ A
+        cos_dB = P @ B
+        cos_dist_edge = np.maximum(cos_dA, cos_dB)
 
         side = P @ edge_n
         proj = P - side[:, np.newaxis] * edge_n
@@ -198,54 +259,38 @@ def _sd_polygon(shape, lons_rad, lats_rad, max_dist=None):
         cross_PB = np.cross(proj_n, B)
         on_arc = safe & (cross_AP @ edge_n >= -1e-10) & (cross_PB @ edge_n >= -1e-10)
 
-        d_gc = np.arcsin(np.clip(np.abs(side), 0.0, 1.0))
-        dist_edge[on_arc] = d_gc[on_arc]
+        cos_dgc = np.sqrt(np.clip(1.0 - side**2, 0.0, 1.0))
+        cos_dist_edge[on_arc] = cos_dgc[on_arc]
 
-        min_dist = np.minimum(min_dist, dist_edge)
+        closer = cos_dist_edge > max_cos
+        best_edge[closer] = i
+        max_cos = np.maximum(max_cos, cos_dist_edge)
 
-    # Pass 2: gnomonic inside test for nearby points only
+    min_dist = np.arccos(np.clip(max_cos, -1.0, 1.0))
+
+    # Pass 2: nearest-edge sign test (no projection or hemisphere limit)
     max_ang = (max_dist / R_EARTH + 0.01) if max_dist else np.pi
     idx = np.where(min_dist < max_ang)[0]
 
     inside = np.zeros(n_pts, dtype=bool)
 
     if len(idx) > 0:
-        P_s = P[idx]
-        sl = np.sin(flat_lons[idx])
-        cl = np.cos(flat_lons[idx])
-        sp = np.sin(flat_lats[idx])
-        cp = np.cos(flat_lats[idx])
-        n_s = len(idx)
-
-        crossings = np.zeros(n_s, dtype=np.int32)
-        any_behind = np.zeros(n_s, dtype=bool)
-
-        for i in range(nv):
-            j = (i + 1) % nv
-            Ax, Ay, Az = V[i]
-            Bx, By, Bz = V[j]
-
-            dA = P_s @ V[i]
-            dB = P_s @ V[j]
-            any_behind |= (dA <= 0) | (dB <= 0)
-
-            sdA = np.maximum(dA, 1e-10)
-            sdB = np.maximum(dB, 1e-10)
-
-            xA = (-Ax*sl + Ay*cl) / sdA
-            yA = (-sp*(Ax*cl + Ay*sl) + Az*cp) / sdA
-            xB = (-Bx*sl + By*cl) / sdB
-            yB = (-sp*(Bx*cl + By*sl) + Bz*cp) / sdB
-
-            cy = (yA > 0) != (yB > 0)
-            sdy = np.where(cy, yB - yA, 1.0)
-            xc = (xA * yB - xB * yA) / sdy
-            crossings += (cy & (xc > 0)).view(np.int8).astype(np.int32)
-
-        inside[idx] = ((crossings % 2) == 1) & ~any_behind
+        # Orient edge normals inward (toward centroid)
+        centroid_signs = np.sign(centroid @ edge_normals.T)
+        inward_n = edge_normals * centroid_signs[:, np.newaxis]
+        # Point is inside if it's on the inward side of its nearest edge
+        be = best_edge[idx]
+        side_nearest = np.sum(P[idx] * inward_n[be], axis=1)
+        inside[idx] = side_nearest > -1e-10
 
     min_dist_km = R_EARTH * min_dist
-    return np.where(inside, -min_dist_km, min_dist_km).reshape(lons_rad.shape)
+    sd = np.where(inside, -min_dist_km, min_dist_km)
+
+    if max_dist is not None:
+        result = np.full(n_pts_full, max_dist * 1.1)
+        result[candidate] = sd
+        return result.reshape(lons_rad.shape)
+    return sd.reshape(lons_rad.shape)
 
 
 
@@ -288,7 +333,10 @@ def _check_convex(vertices_deg):
 
     sign = None
     centroid = V.mean(axis=0)
-    centroid /= np.linalg.norm(centroid)
+    c_len = np.linalg.norm(centroid)
+    if c_len < 1e-15:
+        sys.exit("Error: Polygon vertices cancel out (antipodal or degenerate).")
+    centroid /= c_len
     for i in range(n):
         j = (i + 1) % n
         edge_n = np.cross(V[i], V[j])
@@ -301,6 +349,8 @@ def _check_convex(vertices_deg):
             sign = s > 0
         elif (s > 0) != sign:
             sys.exit("Error: Polygon vertices do not form a convex polygon.")
+    if sign is None:
+        sys.exit("Error: Polygon has no valid edges (coincident or degenerate vertices).")
 
 
 def _shape_center(shape):

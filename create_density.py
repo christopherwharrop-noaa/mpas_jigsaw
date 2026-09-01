@@ -7,9 +7,9 @@ hfun_min = hfun.finest_resolution()
 
 
 def cart_to_geo(x, y, z):
-    from numpy import atan2, asin
-    lam = atan2(y, x)
-    phi = asin(z)
+    from numpy import arctan2, arcsin
+    lam = arctan2(y, x)
+    phi = arcsin(z)
     return (lam, phi)
 
 coords = np.loadtxt('SaveVertices')
