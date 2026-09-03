@@ -108,13 +108,138 @@ def check_cell_types(nEdgesOnCell):
     print(f'  {"non-hexagons":>16s}: {nCells - n_hex:>8d}  ({100.0*(nCells - n_hex)/nCells:5.2f}%)')
 
 
+def nice_bin_width(bin_width_km):
+    """Round a positive bin width to a human-friendly 1-2-2.5-5 sequence."""
+    scale = 10.0 ** np.floor(np.log10(bin_width_km))
+    choices = scale * np.array([1.0, 2.0, 2.5, 5.0, 10.0])
+    return choices[np.argmin(np.abs(choices - bin_width_km))]
+
+
+def cell_size_bin_edges(cell_size_km, bin_width_km=None,
+                        bin_center_km=None):
+    """Return fixed or Freedman-Diaconis histogram bin edges."""
+    min_size = cell_size_km.min()
+    max_size = cell_size_km.max()
+
+    if bin_width_km is None:
+        q25, q75 = np.percentile(cell_size_km, [25, 75])
+        automatic = True
+        bin_width_km = 2.0 * (q75 - q25) / cell_size_km.size ** (1.0 / 3.0)
+    else:
+        automatic = False
+
+    if not np.isfinite(bin_width_km) or bin_width_km <= 0.0:
+        bin_width_km = max_size - min_size
+
+    if bin_width_km == 0.0:
+        return np.array([min_size - 0.5, max_size + 0.5])
+
+    if automatic:
+        bin_width_km = max(bin_width_km, (max_size - min_size) / 50.0)
+        bin_width_km = nice_bin_width(bin_width_km)
+
+    if bin_center_km is not None:
+        first_center = (bin_center_km + bin_width_km *
+                        np.floor((min_size - bin_center_km) / bin_width_km))
+        last_center = (bin_center_km + bin_width_km *
+                       np.ceil((max_size - bin_center_km) / bin_width_km))
+        return np.arange(first_center - 0.5 * bin_width_km,
+                         last_center + 1.5 * bin_width_km, bin_width_km)
+
+    lower = np.floor(min_size / bin_width_km) * bin_width_km
+    upper = np.ceil(max_size / bin_width_km) * bin_width_km
+    return np.arange(lower, upper + bin_width_km, bin_width_km)
+
+
+def check_cell_size_distribution(areaCell, nominalMinDc, meshDensity,
+                                 bin_width_km=None):
+    """Report equivalent regular-hexagon spacing derived from dual-cell area."""
+    cell_area_m2 = np.asarray(areaCell) * r_earth ** 2
+    cell_size_km = np.sqrt(2.0 * cell_area_m2 / np.sqrt(3.0)) / 1000.0
+    percentiles = np.percentile(cell_size_km, [1, 5, 25, 50, 75, 95, 99])
+    target_size_km = (r_earth * nominalMinDc *
+                      np.power(1.0 / meshDensity, 0.25) / 1000.0)
+    is_quasi_uniform = np.allclose(target_size_km, target_size_km[0],
+                                   rtol=1.0e-10, atol=1.0e-10)
+
+    if is_quasi_uniform:
+        if bin_width_km is None:
+            bin_width_km = nice_bin_width(0.1 * target_size_km[0])
+        bin_edges = cell_size_bin_edges(
+            cell_size_km, bin_width_km, bin_center_km=target_size_km[0])
+    else:
+        bin_edges = cell_size_bin_edges(cell_size_km, bin_width_km)
+
+    counts, bin_edges = np.histogram(cell_size_km, bins=bin_edges)
+    width = bin_edges[1] - bin_edges[0]
+
+    print('')
+    print('Equivalent-hexagon cell spacing (km):')
+    if is_quasi_uniform:
+        print(f'  Target spacing: {target_size_km[0]:.3f} (quasi-uniform)')
+    else:
+        print(f'  Target range: {target_size_km.min():.3f} / '
+              f'{target_size_km.max():.3f} (variable-resolution)')
+    print(f'  min/max: {cell_size_km.min():.3f} / {cell_size_km.max():.3f}')
+    print(f'  mean:    {cell_size_km.mean():.3f}')
+    print(f'  p01/p05: {percentiles[0]:.3f} / {percentiles[1]:.3f}')
+    print(f'  p25/p50: {percentiles[2]:.3f} / {percentiles[3]:.3f}')
+    print(f'  p75/p95: {percentiles[4]:.3f} / {percentiles[5]:.3f}')
+    print(f'  p99:     {percentiles[6]:.3f}')
+    print(f'  Distribution ({width:.3g} km bins):')
+    for start, end, count in zip(bin_edges[:-1], bin_edges[1:], counts):
+        pct = 100.0 * count / cell_size_km.size
+        print(f'    [{start:7.3f}, {end:7.3f}): {count:>10d}  ({pct:6.2f}%)')
+
+
+def check_dc_edge_distribution(dcEdge, nominalMinDc, meshDensity,
+                               bin_width_km=None):
+    """Report cell-center-to-cell-center spacing from dcEdge."""
+    edge_size_km = np.asarray(dcEdge) * r_earth / 1000.0
+    percentiles = np.percentile(edge_size_km, [1, 5, 25, 50, 75, 95, 99])
+    target_size_km = (r_earth * nominalMinDc *
+                      np.power(1.0 / meshDensity, 0.25) / 1000.0)
+    is_quasi_uniform = np.allclose(target_size_km, target_size_km[0],
+                                   rtol=1.0e-10, atol=1.0e-10)
+
+    if is_quasi_uniform:
+        if bin_width_km is None:
+            bin_width_km = nice_bin_width(0.1 * target_size_km[0])
+        bin_edges = cell_size_bin_edges(
+            edge_size_km, bin_width_km, bin_center_km=target_size_km[0])
+    else:
+        bin_edges = cell_size_bin_edges(edge_size_km, bin_width_km)
+
+    counts, bin_edges = np.histogram(edge_size_km, bins=bin_edges)
+    width = bin_edges[1] - bin_edges[0]
+
+    print('')
+    print('Cell-center spacing, dcEdge (km):')
+    print(f'  min/max: {edge_size_km.min():.3f} / {edge_size_km.max():.3f}')
+    print(f'  mean:    {edge_size_km.mean():.3f}')
+    print(f'  p01/p05: {percentiles[0]:.3f} / {percentiles[1]:.3f}')
+    print(f'  p25/p50: {percentiles[2]:.3f} / {percentiles[3]:.3f}')
+    print(f'  p75/p95: {percentiles[4]:.3f} / {percentiles[5]:.3f}')
+    print(f'  p99:     {percentiles[6]:.3f}')
+    print(f'  Distribution ({width:.3g} km bins):')
+    for start, end, count in zip(bin_edges[:-1], bin_edges[1:], counts):
+        pct = 100.0 * count / edge_size_km.size
+        print(f'    [{start:7.3f}, {end:7.3f}): {count:>10d}  ({pct:6.2f}%)')
+
+
 if __name__ == '__main__':
     import argparse
     import sys
 
     parser = argparse.ArgumentParser()
     parser.add_argument('mesh_file', help='the name of the netCDF file with mesh fields')
+    parser.add_argument('--cell-size-bin-width', type=float,
+                        help='fixed cell-size histogram bin width in km')
     args = parser.parse_args()
+
+    if (args.cell_size_bin_width is not None and
+            args.cell_size_bin_width <= 0.0):
+        parser.error('--cell-size-bin-width must be positive')
 
     f = Dataset(args.mesh_file)
 
@@ -153,6 +278,12 @@ if __name__ == '__main__':
     check_obtuse_triangles(nVertices, vertexDegree, xCell, yCell, zCell, xVertex, yVertex, zVertex, cellsOnVertex)
 
     check_resolution_gradient(nominalMinDc, meshDensity, nEdgesOnCell, edgesOnCell, cellsOnEdge, dcEdge)
+
+    check_cell_size_distribution(areaCell, nominalMinDc, meshDensity,
+                                 args.cell_size_bin_width)
+
+    check_dc_edge_distribution(dcEdge, nominalMinDc, meshDensity,
+                               args.cell_size_bin_width)
 
     check_cell_types(nEdgesOnCell)
 
