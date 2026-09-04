@@ -31,9 +31,17 @@ to build the `mkgrid` program from `mkgrid.c`.
 
 Generating a variable-resolution mesh with a 12-km circular refinement region centered at 38 N, 95 W, relaxing to 60-km grid spacing over a distance of 1600 km is accomplished with the following steps.
 
+The `radius` of a refinement region defines its constant, fine-resolution core. Outside that core, the default `transition_profile: linear` gives the most compact transition zone. Use `transition_profile: smoothstep` when zero slope and zero curvature at both transition endpoints are more important than keeping the transition compact.
+
+```yaml
+mesh:
+  transition_profile: smoothstep
+```
+
+Use `transition_scale` to widen either transition profile when a broader graded region is desired. The transition width is chosen to preserve the configured maximum resolution gradient.
+
 1. Run the `create_hfun.py` script to generate an `HFUN.msh` file
 2. Run `jigsaw`, specifying `MESH.jig` as its command-line argument, to produce a `MESH.msh` file
 3. Run `convert_jigsaw.py` to produce `SaveVertices` and `SaveTriangles` files from the `MESH.msh` file
-4. Run `create_density.py` to produce a `SaveDensity` file
-5. Copy the `hfun.py` file to `SaveCode`
-6. Run `mkgrid`, specifying `12000.0` as its command-line argument, to produce `grid.nc` and `graph.info` files
+4. Run `create_density.py` to produce `SaveDensity`, `SaveCode`, and `SaveConfig` files
+5. Run `mkgrid`, specifying `12000.0` as its command-line argument, to produce `grid.nc` and `graph.info` files. The generated grid includes the density-function source and YAML mesh configuration as provenance. `mesh_quality.py` uses that embedded configuration to report cell shapes by refinement zone.

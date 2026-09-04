@@ -2,6 +2,9 @@
 
 from netCDF4 import Dataset
 import numpy as np
+import yaml
+
+import hfun
 
 
 r_earth = 6371229.0    # MPAS-Atmosphere's assumed Earth radius (m)
@@ -89,6 +92,52 @@ def check_resolution_gradient(nominalMinDc, meshDensity, nEdgesOnCell, edgesOnCe
     print('')
     print('Min nominal cell size gradient:', np.min(gradient))
     print('Max nominal cell size gradient:', np.max(gradient))
+
+
+def _region_paths(regions):
+    paths = []
+    for index, region in enumerate(regions):
+        if region["parent_index"] is None:
+            paths.append(str(sum(r["parent_index"] is None for r in regions[:index]) + 1))
+        else:
+            sibling_number = sum(
+                r["parent_index"] == region["parent_index"]
+                for r in regions[:index]
+            ) + 1
+            paths.append(f'{paths[region["parent_index"]]}.{sibling_number}')
+    return paths
+
+
+def check_cell_types_by_zone(nEdgesOnCell, longitude, latitude, config_text):
+    """Report dual-cell topology by the refinement zone defining each cell."""
+    config = yaml.safe_load(config_text)["mesh"]
+    regions, _ = hfun._build_regions(config)
+    if not regions:
+        return
+
+    labels = np.full(nEdgesOnCell.size, "global background", dtype=object)
+    paths = _region_paths(regions)
+    for index, region in enumerate(regions):
+        distance = hfun._signed_distance(
+            region["shape"], longitude, latitude,
+            max_dist=region["transition_width"]
+        ).flatten()
+        core = distance <= 0.0
+        transition = (distance > 0.0) & (distance < region["transition_width"])
+        parent = "global" if region["parent_index"] is None else paths[region["parent_index"]]
+        labels[core] = f'refinement {paths[index]} core'
+        labels[transition] = f'refinement {paths[index]} -> {parent} transition'
+
+    names = {5: "pentagons", 6: "hexagons", 7: "heptagons", 8: "octagons"}
+    print("")
+    print("Cell shapes by refinement zone:")
+    print(f'  {"zone":<40s} {"cells":>9s} {"pent":>7s} {"hex":>9s} {"hept":>7s} {"oct":>7s}')
+    for label in dict.fromkeys(labels):
+        sides = nEdgesOnCell[labels == label]
+        counts = dict(zip(*np.unique(sides, return_counts=True)))
+        print(f'  {label:<40.40s} {sides.size:>9d} {counts.get(5, 0):>7d} '
+              f'{counts.get(6, 0):>9d} {counts.get(7, 0):>7d} '
+              f'{counts.get(8, 0):>7d}')
 
 
 def check_cell_types(nEdgesOnCell):
@@ -270,6 +319,10 @@ if __name__ == '__main__':
     kiteAreasOnVertex = f.variables['kiteAreasOnVertex'][:]
     nominalMinDc = f.variables['nominalMinDc'][:]
     meshDensity = f.variables['meshDensity'][:]
+    if 'mesh_config' not in f.ncattrs():
+        print('Error: grid.nc does not contain required mesh_config provenance.')
+        sys.exit(1)
+    config_text = f.getncattr('mesh_config')
 
     check_distances(dcEdge, dvEdge)
 
@@ -285,6 +338,10 @@ if __name__ == '__main__':
     check_dc_edge_distribution(dcEdge, nominalMinDc, meshDensity,
                                args.cell_size_bin_width)
 
+    cell_longitude = np.arctan2(np.asarray(yCell), np.asarray(xCell))
+    cell_latitude = np.arcsin(np.asarray(zCell))
+    check_cell_types_by_zone(nEdgesOnCell, cell_longitude, cell_latitude,
+                             config_text)
     check_cell_types(nEdgesOnCell)
 
     f.close()

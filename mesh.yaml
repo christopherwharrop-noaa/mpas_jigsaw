@@ -1,19 +1,31 @@
 mesh:
   resolution: 120.0
   transition_profile: linear
+  # transition_profile: smoothstep
+  transition_scale: 1
   refinements:
     - resolution: 20.0
-      shape: ellipse
-      center_latitude: 38.0
-      center_longitude: -97.0
-      semi_major: 3992.703
-      semi_minor: 2455.287
-      orientation: 95.0
+      shape: polygon
+      vertices:
+        - [19.301804, -82.340349]
+        - [20.839778, -99.013345]
+        - [29.525554, -122.905523]
+        - [32.508909, -125.976836]
+        - [40.261481, -131.231186]
+        - [49.691711, -133.36538]
+        - [52.093493, -133.055371]
+        - [54.208023, -127.229361]
+        - [54.610238, -95.012507]
+        - [52.507878, -63.456645]
+        - [50.787673, -59.750975]
+        - [46.821084, -58.824049]
+        - [43.29423, -60.832061]
+        - [22.689022, -75.654883]
+        - [20.187958, -78.681225]
       refinements:
         - resolution: 3.0
           shape: circle
           center_latitude: 38.0
           center_longitude: -97.0
           radius: 175.0
-          refinements:
 

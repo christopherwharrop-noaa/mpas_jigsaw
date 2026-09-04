@@ -21,11 +21,18 @@ def finest_resolution(config_file="mesh.yaml"):
     return min(r["resolution"] for r in regions)
 
 
+def _profile_max_slope(profile):
+    """Return the maximum normalized slope of a transition profile."""
+    if profile == "linear":
+        return 1.0
+    if profile == "smoothstep":
+        return 30.0 / 16.0
+    sys.exit(f"Error: Unknown transition profile '{profile}'")
+
+
 def transition_width(h_fine, h_coarse, scale=1.0, profile="linear"):
     """Compute transition zone width for the given profile."""
-    if profile == "linear":
-        return scale * (h_coarse - h_fine) / MAX_GRADIENT
-    return scale * np.pi * (h_coarse - h_fine) / (2.0 * MAX_GRADIENT)
+    return scale * (h_coarse - h_fine) * _profile_max_slope(profile) / MAX_GRADIENT
 
 
 # ── Tangent plane projection ──────────────────────────────────────────────────
@@ -182,6 +189,7 @@ def _sd_ellipse(shape, lons_rad, lats_rad, max_dist=None):
         result[candidate] = sd
         return result.reshape(lons_rad.shape)
     return sd.reshape(lons_rad.shape)
+
 def _sd_polygon(shape, lons_rad, lats_rad, max_dist=None):
     """Signed distance to convex polygon using great-circle arcs on the sphere."""
     vertices = np.array(shape["vertices"])
@@ -374,12 +382,14 @@ def _build_regions(config):
     profile = config.get("transition_profile", "linear")
 
     regions = []
-    _flatten_tree(refinements, coarse_res, coarse_res, regions, None, scale, profile)
+    _flatten_tree(refinements, coarse_res, coarse_res, regions, None, scale,
+                  profile)
 
     return regions, coarse_res
 
 
-def _flatten_tree(refinements, coarse_res, parent_res, regions, parent_idx, scale, profile):
+def _flatten_tree(refinements, coarse_res, parent_res, regions, parent_idx,
+                  scale, profile):
     """Recursively flatten a hierarchical refinement tree into a flat list."""
     for ref in refinements:
         shape = _parse_shape(ref)
@@ -400,7 +410,8 @@ def _flatten_tree(refinements, coarse_res, parent_res, regions, parent_idx, scal
 
         children = ref.get("refinements", [])
         if children:
-            _flatten_tree(children, coarse_res, ref["resolution"], regions, idx, scale, profile)
+            _flatten_tree(children, coarse_res, ref["resolution"], regions, idx,
+                          scale, profile)
 
 
 # ── Validation ────────────────────────────────────────────────────────────────
@@ -711,8 +722,10 @@ def _h_single(d, resolution, transition_target, tw, nested, profile="linear"):
         mask = (d > 0) & (d < tw)
         if profile == "linear":
             ret[mask] = resolution + (transition_target - resolution) * d[mask] / tw
-        else:
-            ret[mask] = resolution + (transition_target - resolution) * (1.0 - np.cos(np.pi * d[mask] / tw)) / 2.0
+        elif profile == "smoothstep":
+            t = d[mask] / tw
+            ret[mask] = resolution + (transition_target - resolution) * (
+                6.0 * t ** 5 - 15.0 * t ** 4 + 10.0 * t ** 3)
 
     return ret
 

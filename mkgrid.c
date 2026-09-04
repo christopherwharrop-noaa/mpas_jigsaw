@@ -810,6 +810,7 @@ void write_netcdf(MPI_Offset nCells, MPI_Offset nEdges, MPI_Offset nVertices, MP
                   double * xVertex, double * yVertex, double * zVertex,
                   int * nEdgesOnCell, int * cellsOnCell, int * verticesOnCell, int * cellsOnVertex,
                   long density_len, char *density_code,
+                  long config_len, char *config_text,
                   double min_dc_m
                  )
 {
@@ -1032,6 +1033,11 @@ void write_netcdf(MPI_Offset nCells, MPI_Offset nEdges, MPI_Offset nVertices, MP
 	handle_netcdf_error(ncerr, "Error defining attribute on_a_sphere");
 	ncerr = ncmpi_put_att_double(ncid, NC_GLOBAL, "sphere_radius", NC_DOUBLE, 1, &sphere_radius);
 	handle_netcdf_error(ncerr, "Error defining attribute sphere_radius");
+	if (config_len > 0 && config_text != NULL) {
+		ncerr = ncmpi_put_att_text(ncid, NC_GLOBAL, "mesh_config",
+		                           (MPI_Offset)config_len, config_text);
+		handle_netcdf_error(ncerr, "Error defining attribute mesh_config");
+	}
 
 
 	ncerr = ncmpi_enddef(ncid);
@@ -1292,8 +1298,8 @@ int main(int argc, char **argv)
 	int maxedges2_id;
 	int vertexdegree_id;
 
-	char *density_code;
-	long density_len;
+	char *density_code, *config_text;
+	long density_len, config_len;
 	FILE *density_file; 
 	double min_dc_m = 0.0;
 
@@ -1370,6 +1376,24 @@ int main(int argc, char **argv)
 		density_code = NULL;
 	}
 
+	/* Read the optional mesh-generation configuration. */
+	density_file = fopen("SaveConfig", "r");
+	if (density_file != NULL) {
+		fprintf(stderr, "Reading SaveConfig\n");
+		fseek(density_file, 0L, SEEK_END);
+		config_len = ftell(density_file);
+		fseek(density_file, 0L, SEEK_SET);
+		config_text = malloc((size_t)config_len * sizeof(char));
+		if (fread(config_text, sizeof(char), (size_t)config_len, density_file) != (size_t)config_len) {
+			fprintf(stderr, "Error: short read from SaveConfig\n");
+			return 1;
+		}
+		fclose(density_file);
+	} else {
+		fprintf(stderr, "Unable to open SaveConfig file; mesh_config will not be written to grid.nc\n");
+		config_len = 0L;
+		config_text = NULL;
+	}
 
 	xCell = (double *)malloc(sizeof(double) * (size_t)nCells);
 	yCell = (double *)malloc(sizeof(double) * (size_t)nCells);
@@ -1736,10 +1760,12 @@ int main(int argc, char **argv)
 	             cellsOnCell, verticesOnCell,
 	             cellsOnVertex,
 	             density_len, density_code,
+	             config_len, config_text,
 	             min_dc_m
 	            );
 
 	free(density_code);
+	free(config_text);
 
 	free(xCell);
 	free(yCell);

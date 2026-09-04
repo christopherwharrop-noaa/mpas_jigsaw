@@ -8,3 +8,6 @@
   MESH_FILE=MESH.msh
   MESH_DIMS=2
   OPTM_QLIM=0.9375
+#  INIT_FILE=120km.msh
+
+# Use n ≈ round(7674.725 / dx - 1) for quasi-uniform mesh division factor

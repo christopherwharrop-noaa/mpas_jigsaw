@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 
+from pathlib import Path
+import shutil
+
 import numpy as np
 import hfun
 
@@ -24,3 +27,6 @@ density = (1.0 / (dx / hfun_min))**4
 with open('SaveDensity', 'w') as f:
     for d in density:
         f.write(f'{d}\n')
+
+shutil.copyfile(Path(__file__).with_name('hfun.py'), 'SaveCode')
+shutil.copyfile('mesh.yaml', 'SaveConfig')
